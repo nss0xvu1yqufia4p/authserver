@@ -1,15 +1,24 @@
-ARG BASE_IMAGE=ekidd/rust-musl-builder:1.57.0
+# syntax=docker/dockerfile:1.7-labs
+FROM ghcr.io/dhayes/rust-musl-builder:30d1a75 AS builder
+WORKDIR /app
 
-FROM ${BASE_IMAGE} AS builder
+# Copy manifests first to cache deps
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src && printf "fn main() {}\n" > src/main.rs && \
+    cargo build --release
 
-ADD --chown=rust:rust . ./
-
+# Real sources
+RUN rm -rf src
+COPY src ./src
 RUN cargo build --release
-RUN strip /home/rust/src/target/x86_64-unknown-linux-musl/release/authserver
 
-FROM alpine:3.15.0
-RUN apk --no-cache add ca-certificates
-COPY --from=builder \
-    /home/rust/src/target/x86_64-unknown-linux-musl/release/authserver \
-    /usr/local/bin/
-CMD /usr/local/bin/authserver
+# Optional: strip
+RUN strip /app/target/x86_64-unknown-linux-musl/release/authserver
+
+# Minimal runtime
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/authserver /usr/local/bin/authserver
+ENTRYPOINT ["/usr/local/bin/authserver"]
+# EXPOSE 8080
+
